@@ -16,7 +16,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
-	github.com/doordash-oss/oapi-codegen-dd/v3 v3.75.7
+	github.com/doordash-oss/oapi-codegen-dd/v3 v3.75.15
 	github.com/duckdb/duckdb-go/v2 v2.10504.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
@@ -41,22 +41,22 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/stretchr/testify v1.11.1
-	go.kenn.io/docbank v0.14.1-0.20260915163736-6aefe3363846
+	github.com/stretchr/testify v1.12.1
+	go.kenn.io/docbank v0.14.1-0.20260929193401-0af2361e6ed8
 	go.kenn.io/kata v0.18.0
 	go.kenn.io/kit v0.26.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
-	golang.org/x/crypto v0.54.0
-	golang.org/x/mod v0.38.0
-	golang.org/x/net v0.57.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/mod v0.41.0
+	golang.org/x/net v0.59.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.41.0
+	golang.org/x/sync v0.23.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.15.0
-	golang.org/x/tools v0.48.0
+	golang.org/x/tools v0.49.0
 	google.golang.org/api v0.287.0
 	howett.net/plist v1.0.1
 )
@@ -83,7 +83,6 @@ require (
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.10504.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/darwin-amd64 v0.10504.0 // indirect
@@ -140,7 +139,6 @@ require (
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.25 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
@@ -163,10 +161,10 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.4 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
 	golang.org/x/image v0.45.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260708182218-49f421fb7959 // indirect
+	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/grpc v1.83.1 // indirect
