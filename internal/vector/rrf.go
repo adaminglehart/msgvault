@@ -7,17 +7,18 @@ import (
 
 // Fuse combines two ranked lists via Reciprocal Rank Fusion. rrfK is the
 // standard RRF constant (60 is typical). Returns hits ordered by RRFScore DESC.
+// The sum is taken in float64 so a huge rrfK stays positive, as it does in SQL.
 func Fuse(bm25, vec []Hit, rrfK int) []FusedHit {
 	byID := make(map[int64]*FusedHit)
 	for _, h := range bm25 {
 		entry := getOrInit(byID, h.MessageID)
 		entry.BM25Score = h.Score
-		entry.RRFScore += 1.0 / float64(rrfK+h.Rank)
+		entry.RRFScore += 1.0 / (float64(rrfK) + float64(h.Rank))
 	}
 	for _, h := range vec {
 		entry := getOrInit(byID, h.MessageID)
 		entry.VectorScore = h.Score
-		entry.RRFScore += 1.0 / float64(rrfK+h.Rank)
+		entry.RRFScore += 1.0 / (float64(rrfK) + float64(h.Rank))
 	}
 
 	out := make([]FusedHit, 0, len(byID))
