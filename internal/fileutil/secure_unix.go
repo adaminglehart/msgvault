@@ -7,7 +7,10 @@
 // modes additionally set a DACL restricting access to the current user.
 package fileutil
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
 
 // SecureWriteFile writes data to the named file, creating it if necessary.
 func SecureWriteFile(path string, data []byte, perm os.FileMode) error {
@@ -29,4 +32,16 @@ func SecureChmod(path string, perm os.FileMode) error {
 // SecureOpenFile opens the named file with specified flag and permissions.
 func SecureOpenFile(path string, flag int, perm os.FileMode) (*os.File, error) {
 	return os.OpenFile(path, flag, perm)
+}
+
+// VerifyPrivateFile reports an error unless the open file's mode is exactly perm.
+func VerifyPrivateFile(file *os.File, perm os.FileMode) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != perm {
+		return fmt.Errorf("permissions must be %#o", perm)
+	}
+	return nil
 }

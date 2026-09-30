@@ -2,6 +2,7 @@
 package httpretry
 
 import (
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,7 +35,7 @@ func RetryAfterAt(header string, attempt int, maximum time.Duration, now time.Ti
 	if maximum <= 0 {
 		maximum = DefaultMaxRetryAfter
 	}
-	if delay, ok := parsedRetryAfterAt(header, maximum, now); ok {
+	if delay, ok := ParseRetryAfter(header, maximum, now); ok {
 		return delay
 	}
 
@@ -53,13 +54,16 @@ func RetryAfterAtWithBase(
 	if maximum <= 0 {
 		maximum = DefaultMaxRetryAfter
 	}
-	if delay, ok := parsedRetryAfterAt(header, maximum, now); ok {
+	if delay, ok := ParseRetryAfter(header, maximum, now); ok {
 		return delay
 	}
 	return exponentialBackoffWithBase(attempt, base, maximum)
 }
 
-func parsedRetryAfterAt(header string, maximum time.Duration, now time.Time) (time.Duration, bool) {
+// ParseRetryAfter reads a Retry-After header as delay-seconds or an HTTP-date.
+// It reports false for an empty or unparseable header; a zero or negative
+// maximum leaves the delay uncapped.
+func ParseRetryAfter(header string, maximum time.Duration, now time.Time) (time.Duration, bool) {
 	if header == "" {
 		return 0, false
 	}
@@ -103,6 +107,12 @@ func exponentialBackoffWithBase(attempt int, base, maximum time.Duration) time.D
 		delay *= 2
 	}
 	return min(delay, maximum)
+}
+
+// FullJitter returns a random delay in [0, min(2^attempt seconds, maximum)).
+func FullJitter(attempt int, maximum time.Duration) time.Duration {
+	base := min(float64(uint(1)<<uint(attempt))*float64(time.Second), float64(maximum))
+	return time.Duration(rand.Float64() * base) //nolint:gosec // retry spread, not security-sensitive
 }
 
 func capDelay(delay, maximum time.Duration) time.Duration {

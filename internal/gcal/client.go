@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,12 +15,13 @@ import (
 	"golang.org/x/oauth2"
 
 	"go.kenn.io/msgvault/internal/gmail"
+	"go.kenn.io/msgvault/internal/httpretry"
 )
 
 const (
 	defaultBaseURL = "https://www.googleapis.com/calendar/v3"
-	maxRetries     = 12  // ~10 minutes of network outages, matching the Gmail client
-	maxBackoff     = 600 // seconds
+	maxRetries     = 12 // ~10 minutes of network outages, matching the Gmail client
+	maxBackoff     = 600 * time.Second
 	// defaultMaxResults is the events.list page size. 2500 is the API max,
 	// minimizing round-trips (and quota cost) on large calendars.
 	defaultMaxResults = 2500
@@ -126,7 +126,7 @@ func (c *Client) request(ctx context.Context, op gmail.Operation, method, path s
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			backoff := c.calculateBackoff(attempt)
+			backoff := httpretry.FullJitter(attempt, maxBackoff)
 			c.logger.Debug("retrying calendar request", "attempt", attempt, "backoff", backoff, "path", path)
 			select {
 			case <-ctx.Done():
@@ -204,16 +204,6 @@ func (c *Client) request(ctx context.Context, op gmail.Operation, method, path s
 	}
 
 	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
-}
-
-// calculateBackoff returns full-jitter exponential backoff for a retry attempt.
-func (c *Client) calculateBackoff(attempt int) time.Duration {
-	base := float64(uint(1) << uint(attempt))
-	if base > maxBackoff {
-		base = maxBackoff
-	}
-	jittered := rand.Float64() * base //nolint:gosec // retry spread, not security-sensitive
-	return time.Duration(jittered * float64(time.Second))
 }
 
 // isTransientTokenError reports whether the token endpoint failed with a

@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"math"
-	"math/rand"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -27,9 +26,9 @@ import (
 
 const (
 	baseURL         = "https://gmail.googleapis.com/gmail/v1"
-	maxRetries      = 12  // Upper bound; the request deadline also limits retries
-	maxQuotaRetries = 5   // Quota waits use the caller's context, outside the request budget
-	maxBackoff      = 600 // Max backoff in seconds
+	maxRetries      = 12 // Upper bound; the request deadline also limits retries
+	maxQuotaRetries = 5  // Quota waits use the caller's context, outside the request budget
+	maxBackoff      = 600 * time.Second
 	defaultTimeout  = 30 * time.Second
 	// Raw MIME includes attachments and needs more time on slow connections.
 	rawRequestTimeout = 5 * time.Minute
@@ -148,7 +147,7 @@ func (c *Client) requestWithRetryBudget(ctx context.Context, op Operation, metho
 	remoteMutation := op.remoteMutation()
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			backoff := c.calculateBackoff(attempt)
+			backoff := httpretry.FullJitter(attempt, maxBackoff)
 			c.logger.Debug("retrying request", "attempt", attempt, "backoff", backoff, "path", path)
 
 			select {
@@ -348,21 +347,6 @@ func newStatusError(statusCode int, body []byte) *StatusError {
 		msg = fmt.Sprintf("request failed (%d): %s", statusCode, string(body))
 	}
 	return &StatusError{StatusCode: statusCode, msg: msg}
-}
-
-// calculateBackoff returns the backoff duration for a retry attempt.
-// Uses exponential backoff with full jitter.
-func (c *Client) calculateBackoff(attempt int) time.Duration {
-	// Exponential: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 600, 600...
-	base := float64(uint(1) << uint(attempt))
-	if base > maxBackoff {
-		base = maxBackoff
-	}
-
-	// Full jitter: random value between 0 and base. math/rand is fine here —
-	// the jitter is only for retry-backoff spread, not authentication.
-	jittered := rand.Float64() * base //nolint:gosec // not security-sensitive
-	return time.Duration(jittered * float64(time.Second))
 }
 
 // NotFoundError indicates a 404 response.

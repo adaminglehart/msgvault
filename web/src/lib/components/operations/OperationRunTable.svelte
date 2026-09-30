@@ -1,8 +1,15 @@
 <script lang="ts">
   import { StatusDot, Table, TableHeaderCell } from '@kenn-io/kit-ui';
 
-  import type { OperationKind, OperationRunSummary } from '../../operations/models';
+  import type { OperationRunSummary } from '../../operations/models';
   import { orderedOperationRows } from '../../operations/focus';
+  import {
+    formatOperationTimestamp,
+    operationDuration,
+    operationKindLabels,
+    operationStatusDot,
+    titleCase
+  } from '../../operations/presentation';
 
   let {
     rows,
@@ -16,50 +23,7 @@
     onSelect?: (id: string, button: HTMLButtonElement) => void;
   } = $props();
 
-  const kindLabels: Record<OperationKind, string> = {
-    source_sync: 'Source sync',
-    message_embedding: 'Message embedding',
-    person_sweep: 'Person fact sweep',
-    person_embedding: 'Person embedding',
-    person_enrichment: 'Person enrichment',
-    carddav_sync: 'CardDAV sync',
-    document_extraction: 'Document extraction',
-    document_embedding: 'Document embedding',
-    visual_embedding: 'Visual embedding'
-  };
   const sortedRows = $derived(orderedOperationRows(rows));
-
-  function titleCase(value: string | undefined): string {
-    if (!value) return 'Unspecified';
-    return value.charAt(0).toUpperCase() + value.slice(1);
-  }
-
-  function dotStatus(run: OperationRunSummary) {
-    if (run.state === 'running') return 'working' as const;
-    if (run.state === 'queued') return 'waiting' as const;
-    if (run.state === 'succeeded') return 'idle' as const;
-    if (run.state === 'failed') return 'unclean' as const;
-    return 'stale' as const;
-  }
-
-  function formatTimestamp(value: string): string {
-    const parsed = new Date(value);
-    if (!Number.isFinite(parsed.getTime())) return 'Time unavailable';
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: 'medium', timeStyle: 'short'
-    }).format(parsed);
-  }
-
-  function duration(run: OperationRunSummary): string {
-    if (!run.finished_at) return run.state === 'running' ? 'In progress' : 'Not available';
-    const milliseconds = Date.parse(run.finished_at) - Date.parse(run.started_at);
-    if (!Number.isFinite(milliseconds) || milliseconds < 0) return 'Not available';
-    const totalSeconds = Math.floor(milliseconds / 1_000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    if (minutes === 0) return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
-    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}${seconds ? ` ${seconds} ${seconds === 1 ? 'second' : 'seconds'}` : ''}`;
-  }
 
   function counters(run: OperationRunSummary): string {
     if (run.counters.length === 0) return 'No counters';
@@ -76,14 +40,14 @@
         <button
           type="button"
           data-run-id={run.id}
-          aria-label={`Open ${kindLabels[run.kind]} run`}
+          aria-label={`Open ${operationKindLabels[run.kind]} run`}
           aria-current={selectedID === run.id ? 'true' : undefined}
           onclick={(event) => onSelect(run.id, event.currentTarget)}
         >
-          <span class="row-title">{kindLabels[run.kind]}</span>
-          <span><span aria-hidden="true"><StatusDot status={dotStatus(run)} /></span> {titleCase(run.state)}</span>
-          <span>{titleCase(run.trigger)} · <time datetime={run.started_at}>{formatTimestamp(run.started_at)}</time></span>
-          <span>{duration(run)} · {counters(run)}</span>
+          <span class="row-title">{operationKindLabels[run.kind]}</span>
+          <span><span aria-hidden="true"><StatusDot status={operationStatusDot(run)} /></span> {titleCase(run.state)}</span>
+          <span>{titleCase(run.trigger)} · <time datetime={run.started_at}>{formatOperationTimestamp(run.started_at)}</time></span>
+          <span>{operationDuration(run)} · {counters(run)}</span>
         </button>
       </div>
     {/each}
@@ -107,14 +71,14 @@
               class="run-link"
               type="button"
               data-run-id={run.id}
-              aria-label={`Open ${kindLabels[run.kind]} run`}
+              aria-label={`Open ${operationKindLabels[run.kind]} run`}
               onclick={(event) => onSelect(run.id, event.currentTarget)}
-            >{kindLabels[run.kind]}</button>
+            >{operationKindLabels[run.kind]}</button>
           </td>
           <td>{titleCase(run.trigger)}</td>
-          <td><span class="state"><span aria-hidden="true"><StatusDot status={dotStatus(run)} /></span> {titleCase(run.state)}</span></td>
-          <td><time datetime={run.started_at}>{formatTimestamp(run.started_at)}</time></td>
-          <td>{duration(run)}</td>
+          <td><span class="state"><span aria-hidden="true"><StatusDot status={operationStatusDot(run)} /></span> {titleCase(run.state)}</span></td>
+          <td><time datetime={run.started_at}>{formatOperationTimestamp(run.started_at)}</time></td>
+          <td>{operationDuration(run)}</td>
           <td>{counters(run)}</td>
         </tr>
       {/each}

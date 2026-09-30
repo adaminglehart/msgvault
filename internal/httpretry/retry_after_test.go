@@ -75,3 +75,48 @@ func TestRetryAfterFallbackAttemptBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		header    string
+		maximum   time.Duration
+		wantDelay time.Duration
+		wantOK    bool
+	}{
+		{name: "empty", header: "", maximum: time.Hour},
+		{name: "blank", header: "   ", maximum: time.Hour},
+		{name: "zero is immediate", header: "0", maximum: time.Hour, wantOK: true},
+		{name: "seconds", header: "120", maximum: time.Hour, wantDelay: 2 * time.Minute, wantOK: true},
+		{name: "padded seconds", header: "  120  ", maximum: time.Hour, wantDelay: 2 * time.Minute, wantOK: true},
+		{name: "negative", header: "-5", maximum: time.Hour},
+		{name: "signed", header: "+5", maximum: time.Hour},
+		{name: "exponent", header: "1e3", maximum: time.Hour},
+		{name: "overflow", header: "18446744073709551616", maximum: time.Hour},
+		{name: "future date", header: now.Add(37 * time.Second).Format(http.TimeFormat), maximum: time.Hour, wantDelay: 37 * time.Second, wantOK: true},
+		{name: "past date", header: now.Add(-time.Second).Format(http.TimeFormat), maximum: time.Hour, wantOK: true},
+		{name: "capped", header: "7200", maximum: time.Hour, wantDelay: time.Hour, wantOK: true},
+		{name: "zero maximum is uncapped", header: "7200", wantDelay: 2 * time.Hour, wantOK: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			delay, ok := ParseRetryAfter(tt.header, tt.maximum, now)
+			assert.Equal(t, tt.wantDelay, delay)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
+}
+
+func TestFullJitterBounds(t *testing.T) {
+	const maximum = 600 * time.Second
+	for _, attempt := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12} {
+		limit := min(time.Duration(1<<uint(attempt))*time.Second, maximum)
+		for range 200 {
+			delay := FullJitter(attempt, maximum)
+			assert.GreaterOrEqual(t, delay, time.Duration(0), "attempt %d", attempt)
+			assert.Less(t, delay, limit, "attempt %d", attempt)
+		}
+	}
+	assert.Equal(t, time.Duration(0), FullJitter(64, maximum))
+}

@@ -9,6 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"go.kenn.io/kit/atomicfile"
+	"go.kenn.io/msgvault/internal/fileutil"
 )
 
 const cardDAVTokenFilename = "carddav.json" // #nosec G101 -- This is a credential filename, not a credential value.
@@ -38,20 +41,10 @@ type CredentialFileSnapshot struct {
 	exists   bool
 }
 
-type credentialPermissionBackend interface {
-	secureDirectory(path string) error
-	secureFile(file *os.File) error
-	verifyFile(file *os.File) error
-}
-
 // SavePassword atomically replaces the CardDAV token file. The password is
 // deliberately kept out of config and durable database records.
 func SavePassword(tokenDir, password string) error {
-	return savePasswordWithPermissions(tokenDir, password, nativeCredentialPermissions{})
-}
-
-func savePasswordWithPermissions(tokenDir, password string, permissions credentialPermissionBackend) error {
-	return saveCredentialWithPermissions(tokenDir, Credential{Password: password}, permissions)
+	return saveCredential(tokenDir, Credential{Password: password})
 }
 
 // SaveCredential atomically publishes an identity-bound CardDAV credential.
@@ -59,7 +52,7 @@ func SaveCredential(tokenDir string, credential Credential) error {
 	if (credential.Password == "" && !credential.Google) || credential.BaseURL == "" || credential.Username == "" || credential.ConnectionGeneration <= 0 {
 		return errors.New("CardDAV credential requires a connection identity")
 	}
-	return saveCredentialWithPermissions(tokenDir, credential, nativeCredentialPermissions{})
+	return saveCredential(tokenDir, credential)
 }
 
 // CaptureCredentialFile snapshots the current credential without requiring it
@@ -90,7 +83,7 @@ func (s CredentialFileSnapshot) Restore(tokenDir string) error {
 	if !s.exists {
 		return RemoveCredential(tokenDir)
 	}
-	return saveCredentialBytesWithPermissions(tokenDir, s.contents, nativeCredentialPermissions{})
+	return saveCredentialBytes(tokenDir, s.contents)
 }
 
 // RemoveCredential removes a published CardDAV credential. Missing files are
@@ -103,63 +96,34 @@ func RemoveCredential(tokenDir string) error {
 	return nil
 }
 
-func saveCredentialWithPermissions(tokenDir string, credential Credential, permissions credentialPermissionBackend) error {
+func saveCredential(tokenDir string, credential Credential) error {
 	var encoded bytes.Buffer
 	// #nosec G117 -- The credential is intentionally marshaled only into the private token-file buffer.
 	if err := json.MarshalWrite(&encoded, credential, json.Deterministic(true)); err != nil {
 		return fmt.Errorf("encode CardDAV token file: %w", err)
 	}
-	return saveCredentialBytesWithPermissions(tokenDir, encoded.Bytes(), permissions)
+	return saveCredentialBytes(tokenDir, encoded.Bytes())
 }
 
-func saveCredentialBytesWithPermissions(tokenDir string, contents []byte, permissions credentialPermissionBackend) error {
-	if err := permissions.secureDirectory(tokenDir); err != nil {
+func saveCredentialBytes(tokenDir string, contents []byte) error {
+	if err := fileutil.SecureMkdirAll(tokenDir, 0o700); err != nil {
 		return fmt.Errorf("secure CardDAV token directory: %w", err)
 	}
-
-	temporary, err := os.CreateTemp(tokenDir, ".carddav-*.json")
-	if err != nil {
-		return fmt.Errorf("create CardDAV token file: %w", err)
+	if err := fileutil.SecureChmod(tokenDir, 0o700); err != nil {
+		return fmt.Errorf("secure CardDAV token directory: %w", err)
 	}
-	temporaryPath := temporary.Name()
-	keep := false
-	defer func() {
-		_ = temporary.Close()
-		if !keep {
-			_ = os.Remove(temporaryPath)
-		}
-	}()
-	if err := permissions.secureFile(temporary); err != nil {
-		return fmt.Errorf("secure CardDAV token file: %w", err)
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		return fmt.Errorf("write CardDAV token file: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		return fmt.Errorf("sync CardDAV token file: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close CardDAV token file: %w", err)
-	}
-	target := filepath.Join(tokenDir, cardDAVTokenFilename)
-	if err := os.Rename(temporaryPath, target); err != nil {
+	err := fileutil.SecureReplacePrivateFile(filepath.Join(tokenDir, cardDAVTokenFilename), contents)
+	// Publication is the commit point; a later directory fsync failure keeps the new credential.
+	if err != nil && !errors.Is(err, atomicfile.ErrPublished) {
 		return fmt.Errorf("replace CardDAV token file: %w", err)
 	}
-	// Rename publishes the already-hardened filesystem object; its mode/DACL
-	// travels with it. Keep publication as the final fallible operation so an
-	// error before replacement always leaves the prior credential intact.
-	keep = true
 	return nil
 }
 
 // LoadPassword reads the private CardDAV token file and rejects files exposed
 // to group or other users. Errors never include the token contents.
 func LoadPassword(tokenDir string) (string, error) {
-	return loadPasswordWithPermissions(tokenDir, nativeCredentialPermissions{})
-}
-
-func loadPasswordWithPermissions(tokenDir string, permissions credentialPermissionBackend) (string, error) {
-	credential, err := loadCredentialWithPermissions(tokenDir, permissions)
+	credential, err := loadCredential(tokenDir)
 	if err != nil {
 		return "", err
 	}
@@ -170,7 +134,7 @@ func loadPasswordWithPermissions(tokenDir string, permissions credentialPermissi
 // password-only files remain readable through LoadPassword, but are rejected
 // here so the daemon can never pair them with an arbitrary configured origin.
 func LoadCredential(tokenDir string) (Credential, error) {
-	credential, err := loadCredentialWithPermissions(tokenDir, nativeCredentialPermissions{})
+	credential, err := loadCredential(tokenDir)
 	if err != nil {
 		return Credential{}, err
 	}
@@ -183,7 +147,7 @@ func LoadCredential(tokenDir string) (Credential, error) {
 // LoadLegacyPassword reads only the historical password-only token shape.
 // Partially bound records fail closed instead of being silently rebound.
 func LoadLegacyPassword(tokenDir string) (string, error) {
-	credential, err := loadCredentialWithPermissions(tokenDir, nativeCredentialPermissions{})
+	credential, err := loadCredential(tokenDir)
 	if err != nil {
 		return "", err
 	}
@@ -193,14 +157,14 @@ func LoadLegacyPassword(tokenDir string) (string, error) {
 	return credential.Password, nil
 }
 
-func loadCredentialWithPermissions(tokenDir string, permissions credentialPermissionBackend) (Credential, error) {
+func loadCredential(tokenDir string) (Credential, error) {
 	path := filepath.Join(tokenDir, cardDAVTokenFilename)
 	file, err := os.Open(path)
 	if err != nil {
 		return Credential{}, fmt.Errorf("open CardDAV token file: %w", err)
 	}
 	defer file.Close() //nolint:errcheck // read-only file
-	if err := permissions.verifyFile(file); err != nil {
+	if err := fileutil.VerifyPrivateFile(file, 0o600); err != nil {
 		return Credential{}, fmt.Errorf("verify CardDAV token file permissions: %w", err)
 	}
 	decoder := jsontext.NewDecoder(io.LimitReader(file, maximumCredentialFileBytes), json.RejectUnknownMembers(true))

@@ -3,13 +3,17 @@
 package fileutil
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+const fileAllAccess = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1FF
 
 // isOwnerOnly returns true if the permission mode grants nothing to group or other.
 func isOwnerOnly(perm os.FileMode) bool {
@@ -160,4 +164,74 @@ func SecureOpenFile(path string, flag int, perm os.FileMode) (*os.File, error) {
 		}
 	}
 	return f, nil
+}
+
+// VerifyPrivateFile reports an error unless the open file is owned by the
+// current user (or an Administrators group the user belongs to) and its
+// protected DACL holds exactly one non-inherited full-control entry for the
+// current user. perm is unused on Windows; the DACL is the access rule.
+func VerifyPrivateFile(file *os.File, _ os.FileMode) error {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return fmt.Errorf("get current user SID: %w", err)
+	}
+	descriptor, err := windows.GetSecurityInfo(windows.Handle(file.Fd()), windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		return fmt.Errorf("read DACL: %w", err)
+	}
+	owner, _, err := descriptor.Owner()
+	if err != nil || owner == nil {
+		return fmt.Errorf("read owner: %w", err)
+	}
+	if err := verifyOwner(owner, user.User.Sid); err != nil {
+		return err
+	}
+	control, _, err := descriptor.Control()
+	if err != nil {
+		return fmt.Errorf("read DACL control: %w", err)
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 {
+		return errors.New("DACL permits inherited access")
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil || dacl == nil {
+		return fmt.Errorf("read DACL entries: %w", err)
+	}
+	if dacl.AceCount != 1 {
+		return errors.New("DACL must contain exactly one access entry")
+	}
+	var ace *windows.ACCESS_ALLOWED_ACE
+	if err := windows.GetAce(dacl, 0, &ace); err != nil {
+		return fmt.Errorf("read owner ACE: %w", err)
+	}
+	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE ||
+		(ace.Mask != windows.GENERIC_ALL && ace.Mask != fileAllAccess) {
+		return errors.New("DACL does not grant exactly full control")
+	}
+	if ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
+		return errors.New("DACL contains inherited access")
+	}
+	// #nosec G103 -- GetAce supplies an access-allowed ACE whose SidStart is the first word of its contiguous SID.
+	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+	if !aceSID.Equals(user.User.Sid) {
+		return errors.New("DACL grants a principal other than the current user")
+	}
+	return nil
+}
+
+func verifyOwner(owner, user *windows.SID) error {
+	if owner.Equals(user) {
+		return nil
+	}
+	if owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
+		member, err := windows.Token(0).IsMember(owner)
+		if err != nil {
+			return fmt.Errorf("check Administrators membership: %w", err)
+		}
+		if member {
+			return nil
+		}
+	}
+	return errors.New("file owner is not the current user")
 }

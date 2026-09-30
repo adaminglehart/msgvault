@@ -1,13 +1,15 @@
 <script lang="ts">
   import { Button, StatusDot } from '@kenn-io/kit-ui';
 
-  import type {
-    OperationAction,
-    OperationKind,
-    OperationLane,
-    OperationRunSummary,
-    OperationStatusLane
-  } from '../../operations/models';
+  import type { OperationAction, OperationLane, OperationStatusLane } from '../../operations/models';
+  import {
+    formatOperationTimestamp,
+    operationActionLabels,
+    operationKindLabels,
+    operationRelatedLabels,
+    operationStatusDot,
+    titleCase
+  } from '../../operations/presentation';
 
   type RelatedStatus = NonNullable<OperationStatusLane['kinds'][number]['related_status']>;
 
@@ -30,49 +32,7 @@
     documents: 'Documents',
     visual_attachments: 'Attachments'
   };
-  const kindLabels: Record<OperationKind, string> = {
-    source_sync: 'Source sync',
-    message_embedding: 'Message embedding',
-    person_sweep: 'Person fact sweep',
-    person_embedding: 'Person embedding',
-    person_enrichment: 'Person enrichment',
-    carddav_sync: 'CardDAV sync',
-    document_extraction: 'Document extraction',
-    document_embedding: 'Document embedding',
-    visual_embedding: 'Visual embedding'
-  };
-  const relatedLabels: Record<RelatedStatus, string> = {
-    listSourceStatus: 'Sources status',
-    getDocumentIndexStatus: 'Document index status',
-    getDocumentVectorStatus: 'Document vector status',
-    getVisualAttachmentStatus: 'Visual attachment status',
-    getCardDAVStatus: 'CardDAV settings'
-  };
-  const actionLabels: Record<OperationAction, string> = {
-    carddav_sync: 'Start CardDAV sync',
-    visual_build: 'Build visual index',
-    visual_resume: 'Resume visual index'
-  };
 
-  function stateLabel(run: OperationRunSummary): string {
-    return run.state.charAt(0).toUpperCase() + run.state.slice(1);
-  }
-
-  function statusDot(run: OperationRunSummary) {
-    if (run.state === 'running') return 'working' as const;
-    if (run.state === 'queued') return 'waiting' as const;
-    if (run.state === 'succeeded') return 'idle' as const;
-    if (run.state === 'failed') return 'unclean' as const;
-    return 'stale' as const;
-  }
-
-  function formatTimestamp(value: string): string {
-    const parsed = new Date(value);
-    if (!Number.isFinite(parsed.getTime())) return 'Time unavailable';
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: 'medium', timeStyle: 'short'
-    }).format(parsed);
-  }
 </script>
 
 <section class="lane-cards" aria-label="Operation lanes">
@@ -84,8 +44,8 @@
       {:else}
         <div class="kind-list">
           {#each lane.kinds as kind (kind.kind)}
-            <section class="kind" aria-label={kindLabels[kind.kind]}>
-              <h3>{kindLabels[kind.kind]}</h3>
+            <section class="kind" aria-label={operationKindLabels[kind.kind]}>
+              <h3>{operationKindLabels[kind.kind]}</h3>
               <div class="availability">
                 <span>
                   <span aria-hidden="true"><StatusDot status={kind.configured ? 'idle' : 'unclean'} /></span>
@@ -101,9 +61,9 @@
                   <div>
                     <dt>Active</dt>
                     <dd>
-                      <span aria-hidden="true"><StatusDot status={statusDot(kind.active)} /></span>
-                      <span>{stateLabel(kind.active)}</span>
-                      <time datetime={kind.active.started_at}>{formatTimestamp(kind.active.started_at)}</time>
+                      <span aria-hidden="true"><StatusDot status={operationStatusDot(kind.active)} /></span>
+                      <span>{titleCase(kind.active.state)}</span>
+                      <time datetime={kind.active.started_at}>{formatOperationTimestamp(kind.active.started_at)}</time>
                     </dd>
                   </div>
                 {/if}
@@ -111,9 +71,9 @@
                   <div>
                     <dt>Latest</dt>
                     <dd>
-                      <span aria-hidden="true"><StatusDot status={statusDot(kind.latest)} /></span>
-                      <span>{stateLabel(kind.latest)}</span>
-                      <time datetime={kind.latest.started_at}>{formatTimestamp(kind.latest.started_at)}</time>
+                      <span aria-hidden="true"><StatusDot status={operationStatusDot(kind.latest)} /></span>
+                      <span>{titleCase(kind.latest.state)}</span>
+                      <time datetime={kind.latest.started_at}>{formatOperationTimestamp(kind.latest.started_at)}</time>
                     </dd>
                   </div>
                 {/if}
@@ -123,7 +83,7 @@
                     <dd>
                       <span aria-hidden="true"><StatusDot status="idle" /></span>
                       <span>Succeeded</span>
-                      <time datetime={kind.latest_successful.started_at}>{formatTimestamp(kind.latest_successful.started_at)}</time>
+                      <time datetime={kind.latest_successful.started_at}>{formatOperationTimestamp(kind.latest_successful.started_at)}</time>
                     </dd>
                   </div>
                 {/if}
@@ -137,7 +97,7 @@
                     <Button
                       size="sm"
                       surface="soft"
-                      label={`Open ${relatedLabels[kind.related_status]}`}
+                      label={`Open ${operationRelatedLabels[kind.related_status]}`}
                       onclick={(event) => onNavigate(kind.related_status!, event.currentTarget as HTMLButtonElement)}
                     />
                   {/if}
@@ -145,7 +105,7 @@
                     <Button
                       size="sm"
                       tone="info"
-                      label={actionPending === action ? `${actionLabels[action]}…` : actionLabels[action]}
+                      label={actionPending === action ? `${operationActionLabels[action]}…` : operationActionLabels[action]}
                       disabled={actionPending !== null}
                       onclick={() => onAction(action)}
                     />

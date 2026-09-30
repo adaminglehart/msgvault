@@ -1,12 +1,15 @@
 <script lang="ts">
   import { Button, StatusDot } from '@kenn-io/kit-ui';
 
-  import type {
-    OperationAction,
-    OperationKind,
-    OperationRunDetail,
-    OperationRunSummary
-  } from '../../operations/models';
+  import type { OperationAction, OperationRunDetail } from '../../operations/models';
+  import {
+    operationActionLabels,
+    operationDuration,
+    operationKindLabels,
+    operationRelatedLabels,
+    operationStatusDot,
+    titleCase
+  } from '../../operations/presentation';
 
   type RelatedStatus = NonNullable<OperationRunDetail['related_status']>;
 
@@ -26,42 +29,6 @@
     onAction?: (action: OperationAction) => void;
   } = $props();
 
-  const kindLabels: Record<OperationKind, string> = {
-    source_sync: 'Source sync',
-    message_embedding: 'Message embedding',
-    person_sweep: 'Person fact sweep',
-    person_embedding: 'Person embedding',
-    person_enrichment: 'Person enrichment',
-    carddav_sync: 'CardDAV sync',
-    document_extraction: 'Document extraction',
-    document_embedding: 'Document embedding',
-    visual_embedding: 'Visual embedding'
-  };
-  const relatedLabels: Record<RelatedStatus, string> = {
-    listSourceStatus: 'Sources status',
-    getDocumentIndexStatus: 'Document index status',
-    getDocumentVectorStatus: 'Document vector status',
-    getVisualAttachmentStatus: 'Visual attachment status',
-    getCardDAVStatus: 'CardDAV settings'
-  };
-  const actionLabels: Record<OperationAction, string> = {
-    carddav_sync: 'Start CardDAV sync',
-    visual_build: 'Build visual index',
-    visual_resume: 'Resume visual index'
-  };
-
-  function titleCase(value: string | undefined): string {
-    if (!value) return 'Unspecified';
-    return value.charAt(0).toUpperCase() + value.slice(1);
-  }
-
-  function dotStatus(run: OperationRunSummary) {
-    if (run.state === 'running') return 'working' as const;
-    if (run.state === 'queued') return 'waiting' as const;
-    if (run.state === 'succeeded') return 'idle' as const;
-    if (run.state === 'failed') return 'unclean' as const;
-    return 'stale' as const;
-  }
 
   function formatTimestamp(value: string | undefined): string {
     if (!value) return 'Not available';
@@ -72,34 +39,23 @@
     }).format(parsed);
   }
 
-  function duration(run: OperationRunDetail): string {
-    if (!run.finished_at) return run.state === 'running' ? 'In progress' : 'Not available';
-    const milliseconds = Date.parse(run.finished_at) - Date.parse(run.started_at);
-    if (!Number.isFinite(milliseconds) || milliseconds < 0) return 'Not available';
-    const totalSeconds = Math.floor(milliseconds / 1_000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return minutes
-      ? `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}${seconds ? ` ${seconds} ${seconds === 1 ? 'second' : 'seconds'}` : ''}`
-      : `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
-  }
 </script>
 
 <section class="detail" aria-label="Operation run detail">
   <header>
     <div>
       <p>Run detail</p>
-      <h2>{kindLabels[detail.kind]}</h2>
+      <h2>{operationKindLabels[detail.kind]}</h2>
     </div>
     {#if showClose}<Button size="sm" surface="soft" label="Close operation detail" onclick={onClose} />{/if}
   </header>
 
   <dl class="facts">
-    <div><dt>State</dt><dd><span aria-hidden="true"><StatusDot status={dotStatus(detail)} /></span> {titleCase(detail.state)}</dd></div>
+    <div><dt>State</dt><dd><span aria-hidden="true"><StatusDot status={operationStatusDot(detail)} /></span> {titleCase(detail.state)}</dd></div>
     <div><dt>Trigger</dt><dd>{titleCase(detail.trigger)}</dd></div>
     <div><dt>Started</dt><dd><time datetime={detail.started_at}>{formatTimestamp(detail.started_at)}</time></dd></div>
     <div><dt>Finished</dt><dd>{#if detail.finished_at}<time datetime={detail.finished_at}>{formatTimestamp(detail.finished_at)}</time>{:else}Not available{/if}</dd></div>
-    <div><dt>Duration</dt><dd>{duration(detail)}</dd></div>
+    <div><dt>Duration</dt><dd>{operationDuration(detail)}</dd></div>
   </dl>
 
   <section aria-labelledby="detail-counters-heading">
@@ -128,7 +84,7 @@
         <Button
           size="sm"
           surface="soft"
-          label={`Open ${relatedLabels[detail.related_status]}`}
+          label={`Open ${operationRelatedLabels[detail.related_status]}`}
           onclick={(event) => onNavigate(detail.related_status!, event.currentTarget as HTMLButtonElement)}
         />
       {/if}
@@ -136,7 +92,7 @@
         <Button
           size="sm"
           tone="info"
-          label={actionPending === action ? `${actionLabels[action]}…` : actionLabels[action]}
+          label={actionPending === action ? `${operationActionLabels[action]}…` : operationActionLabels[action]}
           disabled={actionPending !== null}
           onclick={() => onAction(action)}
         />

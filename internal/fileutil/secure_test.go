@@ -147,3 +147,25 @@ func TestSecureOpenFile_ReadOnly(t *testing.T) {
 	require.NoError(err, "Read")
 	assert.Equal(t, "existing", string(buf[:n]))
 }
+
+func TestVerifyPrivateFile(t *testing.T) {
+	require := require.New(t)
+	dir := t.TempDir()
+	check := func(name string, prepare func(path string) error) error {
+		path := filepath.Join(dir, name)
+		require.NoError(os.WriteFile(path, []byte("secret"), 0o600))
+		require.NoError(prepare(path))
+		file, err := os.Open(path)
+		require.NoError(err)
+		defer file.Close() //nolint:errcheck // read-only file
+		return VerifyPrivateFile(file, 0o600)
+	}
+	if runtime.GOOS == "windows" {
+		require.NoError(check("hardened", func(path string) error { return SecureChmod(path, 0o600) }))
+		require.Error(check("inherited", func(string) error { return nil }), "a fresh file inherits its directory's DACL")
+		return
+	}
+	require.NoError(check("owner", func(string) error { return nil }))
+	require.ErrorContains(check("group", func(path string) error { return os.Chmod(path, 0o640) }), "permissions")
+	require.ErrorContains(check("readonly", func(path string) error { return os.Chmod(path, 0o400) }), "permissions")
+}

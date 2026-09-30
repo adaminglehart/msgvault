@@ -22,6 +22,7 @@
     OperationRunDetail as OperationRunDetailModel,
     OperationsURLState
   } from '../../operations/models';
+  import { operationKindLabels } from '../../operations/presentation';
   import OperationLaneCards from './OperationLaneCards.svelte';
   import OperationRelatedStatus from './OperationRelatedStatus.svelte';
   import OperationRunDetail from './OperationRunDetail.svelte';
@@ -88,17 +89,6 @@
     { value: 'failed', label: 'Failed' },
     { value: 'cancelled', label: 'Cancelled' }
   ];
-  const kindLabels: Record<OperationKind, string> = {
-    source_sync: 'Source sync',
-    message_embedding: 'Message embedding',
-    person_sweep: 'Person fact sweep',
-    person_embedding: 'Person embedding',
-    person_enrichment: 'Person enrichment',
-    carddav_sync: 'CardDAV sync',
-    document_extraction: 'Document extraction',
-    document_embedding: 'Document embedding',
-    visual_embedding: 'Visual embedding'
-  };
   const actionSuccess: Record<OperationAction, string> = {
     carddav_sync: 'CardDAV sync request completed; current operation state was refreshed.',
     visual_build: 'Visual index build request completed; current operation state was refreshed.',
@@ -251,7 +241,7 @@
   {#if current.unavailableKinds.length > 0}
     <div class="notice" role="status" aria-label="Unavailable operation history">
       {#each current.unavailableKinds as unavailable (unavailable.kind)}
-        <span>{kindLabels[unavailable.kind]} history is unavailable.</span>
+        <span>{operationKindLabels[unavailable.kind]} history is unavailable.</span>
       {/each}
     </div>
   {/if}
