@@ -8,6 +8,13 @@ All notable changes to msgvault, grouped by release.
 
 ## Unreleased
 
+- People provider keys stored with `msgvault person provider add --api-key-stdin`
+  or the Web UI now work on Windows. Every stored people provider key lives in
+  `tokens/provider-credentials.json` with the other provider keys, and keys an
+  older release kept under `tokens/people-providers/` move there the first time
+  msgvault uses the profile. After a people key is stored this way, an older
+  release rejects the credential file, so downgrading makes every stored
+  provider key unavailable until you remove the people entries.
 - Exa and Sixtyfour person enrichment collapse repeated values before committing
   claims, so duplicate provider output no longer aborts the claim generation.
 - Person enrichment retains queued lookups and refresh schedules when a provider
