@@ -52,25 +52,32 @@ func TestOwnerAttributionParityStoreVersusCache(t *testing.T) {
 	require.NoError(err)
 
 	sentAt := time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC)
-	addMessage := func(source int64, id string, sender int64, fromEnvelope ...int64) {
+	messageIDs := map[string]int64{}
+	addMessage := func(source int64, id string, sender int64, envelope ...store.RecipientSet) {
 		conv, err := st.EnsureConversation(source, "thread-"+id, "Thread")
 		require.NoError(err)
-		messageID, err := st.UpsertMessage(&store.Message{
-			ConversationID: conv, SourceID: source, SourceMessageID: id, MessageType: "email",
-			SenderID: sql.NullInt64{Int64: sender, Valid: true},
-			SentAt:   sql.NullTime{Time: sentAt, Valid: true},
+		messageID, err := st.PersistMessage(&store.MessagePersistData{
+			Message: &store.Message{
+				ConversationID: conv, SourceID: source, SourceMessageID: id, MessageType: "email",
+				SenderID: sql.NullInt64{Int64: sender, Valid: true},
+				SentAt:   sql.NullTime{Time: sentAt, Valid: true},
+			},
+			Recipients: envelope,
 		})
 		require.NoError(err)
-		if len(fromEnvelope) > 0 {
-			require.NoError(st.ReplaceMessageRecipients(messageID, "from", fromEnvelope, make([]string, len(fromEnvelope))))
-		}
+		messageIDs[id] = messageID
+	}
+	fromEnvelope := func(participant int64, address string) store.RecipientSet {
+		return store.RecipientSet{Type: "from", ParticipantIDs: []int64{participant},
+			DisplayNames: []string{""}, EmailAddresses: []string{address}}
 	}
 	for _, sender := range []int64{caseSender, aliasOnly, guarded, phone} {
 		addMessage(sourceA.ID, fmt.Sprintf("a-fallback-%d", sender), sender)
 		addMessage(sourceB.ID, fmt.Sprintf("b-fallback-%d", sender), sender)
 	}
-	addMessage(sourceA.ID, "a-envelope-disagrees", caseSender, guarded)
-	addMessage(sourceA.ID, "a-envelope-owner", guarded, caseSender)
+	// Each envelope disagrees with its sender, so only the envelope branch explains the result.
+	addMessage(sourceA.ID, "a-envelope-disagrees", caseSender, fromEnvelope(guarded, "bob@example.com"))
+	addMessage(sourceA.ID, "a-envelope-owner", guarded, fromEnvelope(caseSender, "Alice@Example.COM"))
 
 	_, err = buildCache(dbPath, analyticsDir, false)
 	require.NoError(err)
@@ -103,6 +110,12 @@ func TestOwnerAttributionParityStoreVersusCache(t *testing.T) {
 			fromMe++
 		}
 	}
+	envelopeFromMe := map[int64]bool{}
+	for _, row := range storeRows {
+		envelopeFromMe[row.ID] = row.IsFromMe
+	}
+	require.False(envelopeFromMe[messageIDs["a-envelope-disagrees"]], "a non-owner envelope overrides an owner sender")
+	require.True(envelopeFromMe[messageIDs["a-envelope-owner"]], "an owner envelope overrides a non-owner sender")
 	require.NotZero(fromMe, "the fixture must attribute some messages to the owner")
 	require.Less(fromMe, len(storeRows), "the fixture must leave some messages unattributed")
 	require.Equal(storeRows, readAttribution(duckdb,

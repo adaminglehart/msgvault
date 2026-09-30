@@ -894,7 +894,7 @@ func acquireCacheBuildLock(ctx context.Context, analyticsDir string) (*flock.Flo
 // conversationsExportSelectSQL renders the conversations dataset export
 // query: every conversation with an exportable message inside the watermark,
 // with NULL-normalized string columns. Shared by the full/incremental export
-// and the derived-refresh re-staging (exportDerivedConversations) so the two
+// and the derived-refresh re-staging in refreshDerivedDatasetsOnly so the two
 // can never bake different rows for the same watermark.
 func (s *cacheSourceSnapshot) conversationsExportSelectSQL(lastMessageID int64) string {
 	return fmt.Sprintf(`SELECT
@@ -913,7 +913,7 @@ func (s *cacheSourceSnapshot) conversationsExportSelectSQL(lastMessageID int64) 
 
 // participantIdentifiersExportSelectSQL renders the participant_identifiers
 // dataset export query. Shared by the full/incremental export and the
-// derived-refresh re-staging (exportDerivedParticipantIdentifiers) so the two
+// derived-refresh re-staging in refreshDerivedDatasetsOnly so the two
 // can never bake different rows. Identifier keys with invalid UTF-8 export as
 // the empty string (unknown) because repairing them could collide two
 // distinct keys.
