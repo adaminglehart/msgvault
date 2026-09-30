@@ -72,34 +72,12 @@ func (b *Backend) fuseAcceleratedSignals(
 		}
 	}
 
-	byMessage := make(map[int64]vector.FusedHit, len(bm25Hits)+len(vectorHits))
-	for _, hit := range bm25Hits {
-		hit.VectorScore = math.NaN()
-		byMessage[hit.MessageID] = hit
+	bm25 := make([]vector.Hit, len(bm25Hits))
+	for i, hit := range bm25Hits {
+		// SQL returns BM25 rows in ROW_NUMBER order, so position i is rank i+1.
+		bm25[i] = vector.Hit{MessageID: hit.MessageID, Score: hit.BM25Score, Rank: i + 1}
 	}
-	for i, vectorHit := range vectorHits {
-		hit, exists := byMessage[vectorHit.MessageID]
-		if !exists {
-			hit = vector.FusedHit{
-				MessageID: vectorHit.MessageID,
-				BM25Score: math.NaN(),
-				RRFScore:  0,
-			}
-		}
-		hit.VectorScore = vectorHit.Score
-		hit.RRFScore += 1.0 / float64(req.RRFK+i+1)
-		byMessage[hit.MessageID] = hit
-	}
-	hits := make([]vector.FusedHit, 0, len(byMessage))
-	for _, hit := range byMessage {
-		hits = append(hits, hit)
-	}
-	sort.SliceStable(hits, func(i, j int) bool {
-		if hits[i].RRFScore != hits[j].RRFScore {
-			return hits[i].RRFScore > hits[j].RRFScore
-		}
-		return hits[i].MessageID < hits[j].MessageID
-	})
+	hits := vector.Fuse(bm25, vectorHits, req.RRFK)
 	if req.SubjectBoost > 1 && len(req.SubjectTerms) > 0 {
 		b.applySubjectBoost(ctx, hits, req.SubjectTerms, req.SubjectBoost)
 	}

@@ -1266,3 +1266,59 @@ func TestFusedSearch_DimensionMismatch(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, vector.ErrDimensionMismatch)
 }
+
+func TestFusedSearch_ReadyAcceleratorRRFScoresMatchRanks(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	b, ctx := newFusedBackendForTest(t)
+	// Identical indexed text ties the BM25 score, so the KPerSignal cut
+	// falls inside the tie and messages 13 and 14 drop out of the pool.
+	for _, id := range []int64{10, 11, 12, 13, 14} {
+		_, err := b.mainDB.ExecContext(ctx, `INSERT INTO messages (id) VALUES (?)`, id)
+		require.NoError(err)
+		_, err = b.mainDB.ExecContext(ctx,
+			`INSERT INTO messages_fts (rowid, subject, body) VALUES (?, 'meeting', 'meeting')`, id)
+		require.NoError(err)
+	}
+	generationID := seedAndEmbed(t, b, map[int64][]float32{
+		1: unitVec(4, 0), 2: unitVec(4, 1), 3: unitVec(4, 2),
+		10: {0, 0.9, 0.1, 0}, 11: unitVec(4, 3),
+	})
+	installReadyFlatAccelerator(t, b, generationID, 4)
+	require.NoError(b.ActivateGeneration(ctx, generationID, true))
+
+	hits, metadata, err := b.FusedSearch(ctx, vector.FusedRequest{
+		FTSTerms: []string{"meeting"}, QueryVec: unitVec(4, 1),
+		Generation: generationID, KPerSignal: 3, Limit: 10, RRFK: 60,
+	})
+	require.NoError(err)
+	assert.Equal(acceleratorKind, metadata.Accelerator)
+
+	// Rank 0 means the message is missing from that signal.
+	want := []struct {
+		messageID         int64
+		bm25Rank, vecRank int
+	}{
+		{messageID: 10, bm25Rank: 1, vecRank: 2},
+		{messageID: 2, vecRank: 1},
+		{messageID: 11, bm25Rank: 2},
+		{messageID: 1, vecRank: 3},
+		{messageID: 12, bm25Rank: 3},
+	}
+	require.Len(hits, len(want))
+	for i, w := range want {
+		hit := hits[i]
+		assert.Equal(w.messageID, hit.MessageID, "hit %d", i)
+		wantScore := 0.0
+		if w.bm25Rank > 0 {
+			wantScore += 1.0 / float64(60+w.bm25Rank)
+		}
+		if w.vecRank > 0 {
+			wantScore += 1.0 / float64(60+w.vecRank)
+		}
+		assert.InDelta(wantScore, hit.RRFScore, 0, "message %d", w.messageID)
+		assert.Equal(w.bm25Rank == 0, math.IsNaN(hit.BM25Score), "message %d BM25Score", w.messageID)
+		assert.Equal(w.vecRank == 0, math.IsNaN(hit.VectorScore), "message %d VectorScore", w.messageID)
+		assert.False(hit.SubjectBoosted, "message %d", w.messageID)
+	}
+}

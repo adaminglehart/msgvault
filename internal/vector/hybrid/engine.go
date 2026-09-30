@@ -1,3 +1,5 @@
+// Package hybrid implements the search engine that routes queries to the
+// active vector.Backend.
 package hybrid
 
 import (

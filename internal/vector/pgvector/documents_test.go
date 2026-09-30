@@ -602,3 +602,52 @@ func assertScoredChunkBasisPostgreSQL(t *testing.T, b *Backend, gen vector.Gener
 	require.Len(t, hits, 1)
 	assert.Equal(t, want, hits[0].SourceBasis)
 }
+
+func TestDocumentPublicationRejectsInvalidScopesPostgreSQL(t *testing.T) {
+	b, ctx, _ := newBackendForTest(t)
+	gen, err := b.CreateGeneration(ctx, "model", 768, "model:768:context")
+	require.NoError(t, err)
+	preserved := pgDocumentPublication("chat:reject:preserved", "revision-a", 1, 51)
+	preserved.PreserveVectors = true
+	tests := []struct {
+		name  string
+		scope vector.DocumentScopePublication
+		want  string
+	}{
+		{
+			name: "fence-only scope with chunks",
+			scope: vector.DocumentScopePublication{ScopeKey: "chat:reject:fence", SourceSequence: 1, FenceOnly: true,
+				Documents: []vector.DocumentPublication{pgDocumentPublication("chat:reject:fence:doc", "revision-a", 1, 41)},
+				Chunks:    []vector.Chunk{pgDocumentChunk(41, 0.1)}},
+			want: "publish scope: fence-only publication cannot contain chunks",
+		},
+		{
+			name: "message owned by two documents",
+			scope: vector.DocumentScopePublication{ScopeKey: "chat:reject:shared", SourceSequence: 1,
+				Documents: []vector.DocumentPublication{
+					pgDocumentPublication("chat:reject:left", "revision-a", 1, 42),
+					pgDocumentPublication("chat:reject:right", "revision-a", 1, 42),
+				},
+				Chunks: []vector.Chunk{pgDocumentChunk(42, 0.1)}},
+			want: `publish scope: message 42 belongs to both "chat:reject:left" and "chat:reject:right"`,
+		},
+		{
+			name: "chunk for a preserved member",
+			scope: vector.DocumentScopePublication{ScopeKey: "chat:reject:preserve", SourceSequence: 1,
+				Documents: []vector.DocumentPublication{preserved},
+				Chunks:    []vector.Chunk{pgDocumentChunk(51, 0.1)}},
+			want: "publish scope: preserved document member 51 also has a replacement chunk",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := b.PublishScopes(ctx, gen, []vector.DocumentScopePublication{tt.scope})
+			require.Error(t, err)
+			assert.Equal(t, tt.want, err.Error())
+		})
+	}
+
+	memberless := vector.DocumentScopePublication{ScopeKey: "chat:reject:memberless", SourceSequence: 1,
+		Documents: []vector.DocumentPublication{pgDocumentPublication("chat:reject:memberless:doc", "revision-a", 1)}}
+	require.NoError(t, b.PublishScopes(ctx, gen, []vector.DocumentScopePublication{memberless}))
+}
