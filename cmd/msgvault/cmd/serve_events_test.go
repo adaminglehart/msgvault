@@ -3,6 +3,9 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.kenn.io/msgvault/internal/config"
 	"go.kenn.io/msgvault/internal/events"
+	"go.kenn.io/msgvault/internal/importer"
 	"go.kenn.io/msgvault/internal/store"
 	"go.kenn.io/msgvault/internal/testutil/storetest"
 )
@@ -58,4 +62,30 @@ func TestConfigureArchiveEvents(t *testing.T) {
 	assert.Equal(t, events.EmailArchived, event.Type)
 	assert.Equal(t, id, data.MessageID)
 	assert.Equal(t, "daemon-email", data.SourceMessageID)
+
+	// Import commands use a separate writable store in the daemon subprocess.
+	// Test that path with the real EML importer, not the daemon's original store.
+	cfg := config.NewDefaultConfig()
+	cfg.HomeDir = t.TempDir()
+	cfg.Data.DataDir = cfg.HomeDir
+	cfg.Events = config.EventsConfig{Enabled: true, NATS: config.NATSConfig{URL: s.ClientURL()}}
+	importStore, cleanup, err := openWritableStoreAndInitForIngestInvocation(&invocation{cfg: cfg, logger: slog.Default()})
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+	mailDir := t.TempDir()
+	mailbox := filepath.Join(mailDir, "Inbox.mailbox")
+	require.NoError(t, os.Mkdir(mailbox, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(mailbox, "sample.eml"), []byte(
+		"From: sender@example.test\r\nTo: recipient@example.test\r\n"+
+			"Message-ID: <archive-event@example.test>\r\nSubject: Archive event test\r\n"+
+			"Date: Thu, 01 Oct 2026 00:00:00 +0000\r\n\r\nTest body.\r\n"), 0o600))
+	_, err = importer.ImportEMLDir(t.Context(), importStore, mailDir, importer.EMLImportOptions{
+		SourceType: "eml", Identifier: "recipient@example.test",
+	})
+	require.NoError(t, err)
+	stored, err = stream.GetMsg(ctx, 2)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(stored.Data, &event))
+	assert.Equal(t, events.EmailArchived, event.Type)
+	assert.NotEmpty(t, event.Data)
 }

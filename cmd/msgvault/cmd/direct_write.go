@@ -151,7 +151,14 @@ func openWritableStoreAndInitWithInvocation(state *invocation, migrate func(*sto
 		return nil, nil, err
 	}
 
+	closeEvents, err := configureArchiveEvents(context.Background(), st, currentCfg.Events)
+	if err != nil {
+		_ = st.Close()
+		release()
+		return nil, nil, err
+	}
 	cleanup := func() {
+		closeEvents()
 		_ = st.Close()
 		release()
 	}
