@@ -54,6 +54,7 @@ type Store struct {
 	readOnly             bool // Opened via OpenReadOnly; skips WAL checkpoint on close
 	fts5Available        bool // Whether FTS5 is available for full-text search
 	closeCleanup         func()
+	eventPublishing      *eventPublishing
 	// directoryProjectionReady becomes true only after InitSchema has created
 	// the projection tables and dirty-marking triggers. Every writable Store
 	// transaction then refreshes its affected Directory rows before commit.
@@ -938,6 +939,7 @@ func (s *Store) withTxOptionsContext(
 	default:
 		slog.Debug("sql tx commit", "duration_ms", ms)
 	}
+	s.publishCommittedEvents(ctx, tx)
 	return nil
 }
 

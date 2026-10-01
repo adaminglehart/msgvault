@@ -1144,12 +1144,12 @@ func ensureConversation(
 	return id, nil
 }
 
-// upsertMessageSQL returns the message upsert SQL with dialect-specific timestamp.
+// insertMessageSQL returns the message insert SQL with a dialect-specific timestamp.
 // The attribution CTE runs before this transaction writes any 'from' envelope
 // snapshot, so it must mirror the no-envelope fallback of
 // messageIdentityAttributionMatch exactly; refreshMessageAttributionWith later
 // settles rows whose envelope disagrees.
-func upsertMessageSQL(now string) string {
+func insertMessageSQL(now string) string {
 	return fmt.Sprintf(`
 	WITH attribution AS (
 		SELECT
@@ -1200,7 +1200,11 @@ func upsertMessageSQL(now string) string {
 	       source_is_from_me, identity_is_from_me,
 	       ?, ?, ?, ?, ?, %s
 	FROM attribution
-	WHERE TRUE
+	WHERE TRUE`, now)
+}
+
+func upsertMessageSQL(now string) string {
+	return insertMessageSQL(now) + `
 	ON CONFLICT(source_id, source_message_id) DO UPDATE SET
 		embed_gen = CASE
 			WHEN COALESCE(messages.subject, '') <> COALESCE(excluded.subject, '')
@@ -1222,7 +1226,7 @@ func upsertMessageSQL(now string) string {
 		snippet = excluded.snippet,
 		size_estimate = excluded.size_estimate,
 		has_attachments = CASE WHEN ? THEN messages.has_attachments ELSE excluded.has_attachments END,
-		attachment_count = CASE WHEN ? THEN messages.attachment_count ELSE excluded.attachment_count END`, now)
+		attachment_count = CASE WHEN ? THEN messages.attachment_count ELSE excluded.attachment_count END`
 }
 
 // UpsertMessage inserts or updates a message.
@@ -1245,7 +1249,7 @@ func (s *Store) UpsertMessage(msg *Message) (int64, error) {
 			}
 		}
 		var err error
-		id, err = upsertMessageWith(q, s.dialect, msg)
+		id, err = upsertMessageWith(q, s.dialect, msg, s.recordEmailInsert(tx, msg))
 		if err != nil {
 			return err
 		}
@@ -1273,7 +1277,7 @@ type bodylessMessageJournalState struct {
 	deleted        bool
 }
 
-func upsertMessageWith(q querier, d Dialect, msg *Message) (int64, error) {
+func upsertMessageWith(q querier, d Dialect, msg *Message, onInsert func(int64)) (int64, error) {
 	journalCandidate := isBodylessMessageJournalCandidate(msg)
 	var prior bodylessMessageJournalState
 	if journalCandidate {
@@ -1295,7 +1299,7 @@ func upsertMessageWith(q querier, d Dialect, msg *Message) (int64, error) {
 			return 0, fmt.Errorf("read bodyless message journal state: %w", err)
 		}
 	}
-	sql := upsertMessageSQL(d.Now())
+	statement := upsertMessageSQL(d.Now())
 	sourceIsFromMe := msg.IsFromMe && !msg.IdentityDerivedIsFromMe
 	identityIsFromMe := msg.IsFromMe && msg.IdentityDerivedIsFromMe
 	args := []any{
@@ -1311,9 +1315,26 @@ func upsertMessageWith(q querier, d Dialect, msg *Message) (int64, error) {
 		msg.PreserveAttachmentStats, msg.PreserveAttachmentStats,
 	}
 
-	// Use RETURNING to avoid an extra SELECT per message when supported.
 	var id int64
-	err := q.QueryRow(sql+"\n\t\tRETURNING id\n\t", args...).Scan(&id)
+	var err error
+	inserted := false
+	if onInsert != nil {
+		// Let the unique constraint decide which writer inserted the message.
+		// A prior-state SELECT alone is not safe with concurrent PostgreSQL writers.
+		err = q.QueryRow(insertMessageSQL(d.Now())+`
+			ON CONFLICT(source_id, source_message_id) DO NOTHING RETURNING id`,
+			args[:len(args)-2]...).Scan(&id)
+		if err == nil {
+			inserted = true
+			onInsert(id)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("insert message for archive event: %w", err)
+		}
+	}
+	if !inserted {
+		// Use RETURNING to avoid an extra SELECT per message when supported.
+		err = q.QueryRow(statement+"\n\t\tRETURNING id\n\t", args...).Scan(&id)
+	}
 
 	if err != nil {
 		// SQLite < 3.35 does not support RETURNING. Fall back to an Exec + SELECT.
@@ -1321,7 +1342,7 @@ func upsertMessageWith(q querier, d Dialect, msg *Message) (int64, error) {
 			return 0, err
 		}
 
-		if _, execErr := q.Exec(sql, args...); execErr != nil {
+		if _, execErr := q.Exec(statement, args...); execErr != nil {
 			return 0, execErr
 		}
 
@@ -2114,7 +2135,7 @@ func (s *Store) persistMessageWith(
 		message = &messageCopy
 	}
 
-	messageID, err := upsertMessageWith(q, s.dialect, message)
+	messageID, err := upsertMessageWith(q, s.dialect, message, s.recordEmailInsert(tx, message))
 	if err != nil {
 		return 0, fmt.Errorf("upsert message: %w", err)
 	}

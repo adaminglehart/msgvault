@@ -311,6 +311,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 	idleTracker := newDaemonIdleTracker(cfg, cancel, logger)
+	closeEvents, err := configureArchiveEvents(ctx, s, cfg.Events)
+	if err != nil {
+		return fmt.Errorf("configure archive events: %w", err)
+	}
+	defer closeEvents()
 	operationGate := api.NewSerialOperationGate()
 	// Closed on shutdown so cached pack readers don't hold attachment pack
 	// files open past the daemon's lifetime (blocks deletion on Windows).

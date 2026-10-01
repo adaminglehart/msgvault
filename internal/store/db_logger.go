@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"go.kenn.io/msgvault/internal/events"
 )
 
 // SQLLogOptions controls the store-level SQL logging behaviour.
@@ -225,7 +227,8 @@ func (d *loggedDB) BeginTx(
 type loggedTx struct {
 	*sql.Tx
 
-	rebind func(string) string
+	rebind           func(string) string
+	archivedMessages []events.ArchivedMessage
 }
 
 // Exec rebinds before delegating. Transaction-scoped queries are

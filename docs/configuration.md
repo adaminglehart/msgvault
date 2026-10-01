@@ -21,6 +21,66 @@ The [complete example](#example-configuration) below illustrates the available
 sections; it is not a required starting configuration.
 
 
+## Archive events (unreleased)
+
+The daemon can send an event when it saves a new email through sync or import.
+This feature is disabled by default. Restart the daemon after a config change.
+
+```toml
+[events]
+enabled = true
+transport = "nats"
+timeout = "2s"
+
+[events.nats]
+url = "nats://localhost:4222"
+subject_prefix = "msgvault"
+# credentials_file = "events.creds"
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `events.enabled` | `false` | Send archive events |
+| `events.transport` | `nats` | Delivery transport; NATS is the only built-in transport |
+| `events.timeout` | `2s` | Positive duration for one send and the initial connection attempt |
+| `events.nats.url` | — | One `nats://` or `tls://` server URL; required when enabled |
+| `events.nats.subject_prefix` | `msgvault` | Literal subject prefix, with no wildcards or empty tokens |
+| `events.nats.credentials_file` | — | Optional NATS credentials file; relative paths use the config directory |
+
+Keep credentials out of the URL. Use `credentials_file` for authentication.
+Before enabling events, create a [JetStream stream](https://docs.nats.io/concepts/jetstream)
+for `msgvault.>` or your selected prefix. Set storage and retention limits.
+For a three-server cluster, use file storage and three stream replicas. The
+daemon does not create streams or consumers.
+
+### Event contract
+
+The `email.archived` event is sent on `msgvault.email.archived` with the default
+prefix. It means that a new email record is committed to the archive. It does
+not mean that the provider moved the email out of the inbox. Existing records,
+updates, repairs, and failed transactions do not produce this event. An import
+of old mail does produce events for new records. Attachment downloads can still
+be incomplete when the event arrives.
+
+The JSON envelope has `id`, `type`, `version`, `time`, `source`, and `data`.
+Version `1` data has `message_id`, `source_id`, and `source_message_id`. These
+identify the saved email; no subject, body, or attachment content is sent.
+`source` is the archive UID. `id` is a stable hash of the archive UID, source ID,
+and provider message ID, with the event type as its prefix. A consumer must
+handle duplicate events. The identifiers are private data even without content.
+
+Delivery is **best effort**. The daemon sends inline after the database commit
+and waits for JetStream confirmation. A send failure is logged, but does not
+undo the saved email or fail its sync. A failed event is not saved or retried.
+A crash between commit and send can lose the event. A timeout can also mean
+that the server stored the event but its confirmation did not reach the daemon.
+An unavailable NATS server does not stop the daemon; the connection retries in
+the background without buffering failed events.
+
+The `internal/events.Publisher` interface and JSON envelope do not depend on
+NATS. Another transport can implement that interface without changing email
+persistence. Only new email events are produced at present.
+
 ## Remote Deletion Consent
 
 Starting in v0.20.0, remote deletion remains permanently opt-in. The invoking

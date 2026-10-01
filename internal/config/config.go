@@ -492,6 +492,7 @@ type Config struct {
 	Sync           SyncConfig                      `toml:"sync"`
 	Chat           ChatConfig                      `toml:"chat"`
 	Server         ServerConfig                    `toml:"server"`
+	Events         EventsConfig                    `toml:"events"`
 	Analytics      AnalyticsConfig                 `toml:"analytics"`
 	Web            WebConfig                       `toml:"web"`
 	Integrations   IntegrationsConfig              `toml:"integrations"`
@@ -834,6 +835,7 @@ func NewDefaultConfig() *Config {
 	cfg.Integrations.Tasks.ApplyDefaults()
 	cfg.Integrations.Kata.ApplyDefaults()
 	cfg.Activity.ApplyDefaults()
+	cfg.Events.ApplyDefaults()
 	cfg.People.Sweep.ApplyDefaults()
 	cfg.People.Enrichment.ApplyDefaults()
 	return cfg
@@ -931,6 +933,9 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 	}
 	cfg.People.Sweep.ApplyDefaults()
 	for _, key := range metadata.Undecoded() {
+		if strings.HasPrefix(key.String(), "events.") {
+			return nil, fmt.Errorf("unknown event config key %q", key.String())
+		}
 		if key.String() == "carddav.password" {
 			return nil, errors.New("[carddav] password is not allowed in config; store it in tokens/carddav.json")
 		}
@@ -960,6 +965,7 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 	cfg.Vector.DBPath = expandPath(cfg.Vector.DBPath)
 	cfg.Vector.Multimodal.CapabilitiesFile = expandPath(cfg.Vector.Multimodal.CapabilitiesFile)
 	cfg.Backup.Repo = expandPath(cfg.Backup.Repo)
+	cfg.Events.NATS.CredentialsFile = expandPath(cfg.Events.NATS.CredentialsFile)
 	for i := range cfg.Muesli {
 		cfg.Muesli[i].DBPath = expandPath(cfg.Muesli[i].DBPath)
 		cfg.Muesli[i].ContactsPath = expandPath(cfg.Muesli[i].ContactsPath)
@@ -981,6 +987,7 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 		cfg.Vector.DBPath = resolveRelative(cfg.Vector.DBPath, cfg.HomeDir)
 		cfg.Vector.Multimodal.CapabilitiesFile = resolveRelative(cfg.Vector.Multimodal.CapabilitiesFile, cfg.HomeDir)
 		cfg.Backup.Repo = resolveRelative(cfg.Backup.Repo, cfg.HomeDir)
+		cfg.Events.NATS.CredentialsFile = resolveRelative(cfg.Events.NATS.CredentialsFile, cfg.HomeDir)
 		for i := range cfg.Muesli {
 			cfg.Muesli[i].DBPath = resolveRelative(cfg.Muesli[i].DBPath, cfg.HomeDir)
 			cfg.Muesli[i].ContactsPath = resolveRelative(cfg.Muesli[i].ContactsPath, cfg.HomeDir)
@@ -1048,6 +1055,10 @@ func decodeConfig(cfg *Config, path string, explicit, homeOverride bool, content
 	}
 	cfg.People.Enrichment.ApplyDefaults()
 	if err := cfg.People.Enrichment.Validate(); err != nil {
+		return nil, err
+	}
+	cfg.Events.ApplyDefaults()
+	if err := cfg.Events.Validate(); err != nil {
 		return nil, err
 	}
 	if err := cfg.Backup.Validate(); err != nil {
